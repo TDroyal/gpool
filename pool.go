@@ -28,7 +28,7 @@ type pool struct {
 }
 
 // new a pool with capacity
-func NewPool(size int32, opts ...option) (Pool, error) {
+func NewPool(size int32, opts ...Option) (Pool, error) {
 	if size < 1 {
 		return nil, ErrInvalidPoolCapacity
 	}
@@ -57,10 +57,10 @@ func NewPool(size int32, opts ...option) (Pool, error) {
 }
 
 // option pattern
-type option func(*pool)
+type Option func(*pool)
 
 // capacity
-func WithCapacity(capacity int32) option {
+func WithCapacity(capacity int32) Option {
 	return func(gp *pool) {
 		gp.capacity = capacity
 	}
