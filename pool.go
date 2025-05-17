@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -11,7 +12,8 @@ var (
 )
 
 const (
-	taskChanNumber = 1
+	taskChanNumber  = 1
+	defaultInterval = time.Second * 5
 )
 
 type Pool interface {
@@ -20,9 +22,11 @@ type Pool interface {
 
 // goroutine pool with blocking function
 type pool struct {
-	capacity    int32     // the capacity of the pool
-	running     int32     // the running number of workers
-	workerCache sync.Pool // object pool of workers
+	capacity    int32         // the capacity of the pool
+	running     int32         // the running number of workers
+	workers     workerQueue   // idle workers   todo
+	workerCache sync.Pool     // object pool of workers
+	interval    time.Duration // the interval for cleaning up idle workers
 	cond        *sync.Cond
 	lock        sync.Locker
 }
@@ -37,8 +41,10 @@ func NewPool(size int32, opts ...Option) (Pool, error) {
 
 	// default config
 	gp.capacity = size
+	gp.workers = newWorkerList(size)
 	gp.lock = &sync.Mutex{}
 	gp.cond = sync.NewCond(gp.lock)
+	gp.interval = defaultInterval
 
 	// todo workerCache
 	gp.workerCache.New = func() any {
@@ -53,16 +59,25 @@ func NewPool(size int32, opts ...Option) (Pool, error) {
 		opt(gp)
 	}
 
+	// async monitor: periodically recycle idle workers
+	go gp.cleanWorkerQueue(gp.interval)
+
 	return gp, nil
 }
 
-// option pattern
-type Option func(*pool)
-
-// capacity
-func WithCapacity(capacity int32) Option {
-	return func(gp *pool) {
-		gp.capacity = capacity
+func (gp *pool) cleanWorkerQueue(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	for {
+		<-ticker.C
+		gp.lock.Lock()
+		// get the worker
+		clist := gp.workers.getCleanList()
+		gp.lock.Unlock()
+		// then stop the worker
+		for i := range clist {
+			clist[i].stop()
+			clist[i] = nil // avoid memory leak
+		}
 	}
 }
 
@@ -86,6 +101,11 @@ func (gp *pool) retrieveWorker() (*worker, error) {
 	gp.lock.Lock()
 
 retry:
+	if w := gp.workers.get(); w != nil {
+		gp.lock.Unlock()
+		return w, nil
+	}
+
 	if gp.running < gp.capacity {
 		gp.lock.Unlock()
 		w := gp.workerCache.Get().(*worker) // sync.Pool is concurrent safe
@@ -102,8 +122,12 @@ retry:
 	goto retry
 }
 
-func (gp *pool) retriveWorker(work *worker) { // retrive worker to object pool
-	gp.workerCache.Put(work)
+func (gp *pool) retriveWorker(worker *worker) { // retrive worker to list
+	gp.lock.Lock()
+	gp.workers.put(worker)
+	gp.lock.Unlock()
+
+	gp.cond.Signal()
 }
 
 // atomic option

@@ -15,6 +15,7 @@ func (w *worker) run() {
 		defer func() {
 			w.gp.addRunning(-1)
 			// if there is a task waiting for an free worker, wake it up
+			w.gp.workerCache.Put(w) // put worker to object pool
 			w.gp.cond.Signal()
 		}()
 
@@ -24,13 +25,17 @@ func (w *worker) run() {
 			}
 
 			task()
-			// recycle the worker
+			// recycle the worker to list
 			w.gp.retriveWorker(w)
-			return
 		}
 	}()
 }
 
 func (w *worker) inputTask(task Task) {
 	w.taskChan <- task
+}
+
+// stop and recycle the worker
+func (w *worker) stop() {
+	w.taskChan <- nil
 }
