@@ -1,6 +1,5 @@
 ### GPool
-
-This is a simple and efficient goroutine pool. It refers to the design idea of ants and uses the object pool sync.Pool to reuse the worker. It is a memory-friendly pool that limits the number of concurrent goroutines.
+This is a simple and efficient goroutine pool. It refers to the design idea of ants and uses the object pool sync.Pool to reuse the worker. v2.x newly adds goroutine reuse (greatly optimizes memory allocation and recycling, and reduces GC pressure). It is a memory-friendly pool that limits the number of concurrent goroutines.
 
 ### How to use it?
 
